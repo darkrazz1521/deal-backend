@@ -1,45 +1,50 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-export async function scrapePriceHistory() {
-  const url = "https://pricehistory.in/todays-deals";
+const PRICE_HISTORY_URL = "https://pricehistoryapp.com/deals";
 
+export async function scrapePriceHistory() {
   try {
-    const res = await axios.get(url, {
+    console.log("Fetching:", PRICE_HISTORY_URL);
+
+    const res = await axios.get(PRICE_HISTORY_URL, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept":
           "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Referer": "https://pricehistory.in/",
+        "Referer": "https://pricehistoryapp.com/",
       },
-      // sometimes helps with Cloudflare-ish setups
-      withCredentials: false,
+      timeout: 15000, // 15s timeout
       maxRedirects: 5,
     });
 
     const $ = cheerio.load(res.data);
     const deals = [];
 
-    $(".product-item").each((i, el) => {
-      const title = $(el).find(".product-title a").text().trim();
-      let link = $(el).find(".product-title a").attr("href") || "";
+    // NOTE: Page content is mostly loaded via JS, so this may not find items.
+    // We keep the loop so it doesn't crash your backend.
+    $(".product-item, .deal-card").each((i, el) => {
+      const title = $(el).find("a").first().text().trim();
+      let link = $(el).find("a").first().attr("href") || "";
 
       if (link.startsWith("/")) {
-        link = "https://pricehistory.in" + link;
+        link = "https://pricehistoryapp.com" + link;
       }
 
-      const image = $(el).find(".product-image img").attr("src") || "";
+      const image = $(el).find("img").first().attr("src") || "";
 
       const price =
-        Number($(el).find(".price-current").text().replace(/₹|,/g, "")) || 0;
+        Number(
+          $(el)
+            .text()
+            .match(/₹[\d,]+/g)?.[0]
+            ?.replace(/₹|,/g, "")
+        ) || 0;
 
-      const old_price =
-        Number($(el).find(".price-old").text().replace(/₹|,/g, "")) || 0;
+      const old_price = 0; // we don't have clear selector here
 
       const discount_percent =
         old_price > price && price > 0
@@ -67,9 +72,14 @@ export async function scrapePriceHistory() {
       });
     });
 
+    console.log("PriceHistory deals scraped:", deals.length);
     return deals;
   } catch (err) {
-    console.error("Scraper error:", err.response?.status, err.message);
+    console.error(
+      "Scraper error:",
+      err.response?.status || err.code || "NO_STATUS",
+      err.message
+    );
     return [];
   }
 }
