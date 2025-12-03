@@ -70,49 +70,60 @@ export async function scrapePriceHistory(options = {}) {
       return FALLBACK_DEALS;
     }
 
-    const deals = results
-      .filter((r) => r.type === "search_product" || !r.type) // keep real products
-      .map((r, index) => {
-        const asin = r.asin || `amz_${index + 1}`;
-        const title = r.name || "Amazon Product";
+    const mapped = results
+  .filter((r) => r.type === "search_product" || !r.type)
+  .map((r, index) => {
+    const asin = r.asin || `amz_${index + 1}`;
+    const title = r.name || "Amazon Product";
 
-        const description =
-          r.purchase_history_message ||
-          `Rating: ${r.stars || "N/A"} • Reviews: ${r.total_reviews || 0}`;
+    const description =
+      r.purchase_history_message ||
+      `Rating: ${r.stars || "N/A"} • Reviews: ${r.total_reviews || 0}`;
 
-        const link = r.url;
-        const image = r.image || "";
+    const link = r.url;
+    const image = r.image || "";
 
-        const price = typeof r.price === "number" ? r.price : 0;
-        const oldPrice =
-          typeof r.original_price?.price === "number"
-            ? r.original_price.price
-            : price;
+    const price = typeof r.price === "number" ? r.price : 0;
+    const oldPrice =
+      typeof r.original_price?.price === "number"
+        ? r.original_price.price
+        : price;
 
-        let discountPercent = 0;
-        if (oldPrice > price && price > 0) {
-          discountPercent = Math.round(((oldPrice - price) / oldPrice) * 100);
-        }
+    let discountPercent = 0;
+    if (oldPrice > price && price > 0) {
+      discountPercent = Math.round(((oldPrice - price) / oldPrice) * 100);
+    }
 
-        return {
-          id: asin,
-          title,
-          description,
-          link,
-          store: "amazon",
-          image,
-          price,
-          old_price: oldPrice,
-          discount_percent: discountPercent,
-          stars: r.stars ?? null,
-          total_reviews: r.total_reviews ?? 0,
-          source: "amazon_scraperapi_search",
-          timestamp: Date.now(),
-        };
-      })
-      .filter((d) => d.link);
+    return {
+      id: asin,
+      title,
+      description,
+      link,
+      store: "amazon",
+      image,
+      price,
+      old_price: oldPrice,
+      discount_percent: discountPercent,
+      stars: r.stars ?? null,
+      total_reviews: r.total_reviews ?? 0,
+      source: "amazon_scraperapi_search",
+      timestamp: Date.now(),
+    };
+  })
+  .filter((d) => d.link);
 
-    console.log("Mapped deals:", deals.length);
+// ✅ remove duplicates by ID (ASIN) or link
+const seen = new Set();
+const deals = [];
+for (const d of mapped) {
+  const key = d.id || d.link;
+  if (seen.has(key)) continue;
+  seen.add(key);
+  deals.push(d);
+}
+
+console.log("Mapped deals (unique):", deals.length);
+
 
     if (!deals.length) {
       console.warn("No mapped deals, using fallback deals");
