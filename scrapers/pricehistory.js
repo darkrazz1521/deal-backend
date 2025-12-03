@@ -28,10 +28,7 @@ const FALLBACK_DEALS = [
 
 // MAIN: list of deals (used by /api/deals)
 export async function scrapePriceHistory(options = {}) {
-  const {
-    query = "deals",
-    page = 1,
-  } = options;
+  const { query = "deals", page = 1 } = options;
 
   if (!SCRAPER_API_KEY) {
     console.warn("SCRAPER_API_KEY missing, using fallback deals");
@@ -45,22 +42,36 @@ export async function scrapePriceHistory(options = {}) {
       params: {
         api_key: SCRAPER_API_KEY,
         query,
-        amazon_domain: "amazon.in", // Indian market
+        country: "in", // geo targeting India
+        tld: "in",     // amazon.in
         page,
       },
       timeout: 30000,
     });
 
-    const results = res.data?.results || res.data?.search_results || [];
-    console.log("Amazon search results:", results.length);
+    const raw = res.data || {};
 
-    if (!results.length) {
-      console.warn("No Amazon search results, using fallback deals");
+    // Debug to see structure in logs (helpful if something changes)
+    console.log(
+      "ScraperAPI raw keys:",
+      raw && typeof raw === "object" ? Object.keys(raw) : typeof raw
+    );
+
+    const results =
+      raw.results ||
+      raw.search_results ||
+      raw.organic_results ||
+      [];
+
+    console.log("Amazon search results:", Array.isArray(results) ? results.length : 0);
+
+    if (!Array.isArray(results) || !results.length) {
+      console.warn("No Amazon search results array, using fallback deals");
       return FALLBACK_DEALS;
     }
 
     const deals = results
-      .filter((r) => r.type === "search_product")
+      .filter((r) => r.type === "search_product" || !r.type) // keep real products
       .map((r, index) => {
         const asin = r.asin || `amz_${index + 1}`;
         const title = r.name || "Amazon Product";
@@ -149,9 +160,11 @@ export async function fetchAmazonProduct(asin, country = "in", tld = "in") {
     const firstImage = Array.isArray(data.images) ? data.images[0] : "";
 
     let price = 0;
-    const priceMatch = priceString.match(/(?:₹|\$|£|€)\s*([\d,]+)/);
+    const priceMatch = priceString.match(/(?:₹|\$|£|€)\s*([\d,\.]+)/);
     if (priceMatch) {
-      price = Number(priceMatch[1].replace(/,/g, ""));
+      const numeric = priceMatch[1].replace(/,/g, "");
+      const parsed = Number(numeric);
+      if (!Number.isNaN(parsed)) price = parsed;
     }
 
     return {

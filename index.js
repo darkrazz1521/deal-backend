@@ -29,9 +29,7 @@ app.get("/api/deals", async (req, res) => {
     const query = req.query.q || "deals";
     const page = Number(req.query.page || 1);
     const minDiscount = Number(req.query.minDiscount || 0);
-    const maxPrice = req.query.maxPrice
-      ? Number(req.query.maxPrice)
-      : null;
+    const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : null;
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const sort = req.query.sort || "discount_desc";
 
@@ -96,6 +94,7 @@ app.get("/api/product/:asin", async (req, res) => {
     const product = await fetchAmazonProduct(asin, "in", "in");
     res.json({ data: product });
   } catch (err) {
+    console.error("Product endpoint error:", err.message);
     res.status(500).json({ error: "Failed to fetch product details" });
   }
 });
