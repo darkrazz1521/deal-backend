@@ -1,15 +1,12 @@
-// scrapers/pricehistory.js
 import axios from "axios";
 import * as cheerio from "cheerio";
 
 // Indian deals RSS feeds from CouponzGuru
-// You can add/remove feeds as you like
 const RSS_FEEDS = [
-  "https://www.couponzguru.com/content/category/food/feed",      // Food / grocery / food delivery deals
-  "http://www.couponzguru.com/travelcoupons/feed",               // Travel-related offers
+  "https://www.couponzguru.com/content/category/food/feed",
+  "http://www.couponzguru.com/travelcoupons/feed",
 ];
 
-// Fallback so your bot never breaks
 const FALLBACK_DEALS = [
   {
     id: "demo_1",
@@ -39,6 +36,12 @@ const FALLBACK_DEALS = [
   },
 ];
 
+function isDealTitle(title = "") {
+  // Simple check: keep things that look like offers/coupons
+  const dealWords = /(coupon|promo code|code|offer|off|deal|booking|flights?|hotel|cashback|save)/i;
+  return dealWords.test(title);
+}
+
 export async function scrapePriceHistory() {
   const deals = [];
 
@@ -48,32 +51,40 @@ export async function scrapePriceHistory() {
 
       const res = await axios.get(feedUrl, { timeout: 15000 });
 
-      // Parse XML as RSS using cheerio in xmlMode
       const $ = cheerio.load(res.data, { xmlMode: true });
 
       $("item").each((i, el) => {
         const $el = $(el);
 
-        const title = $el.find("title").first().text().trim();
+        const rawTitle = $el.find("title").first().text().trim();
         const link = $el.find("link").first().text().trim();
+        let rawDescription = $el.find("description").first().text().trim();
 
-        // description often contains HTML → strip tags
-        const rawDescription = $el.find("description").first().text().trim();
-        const desc$ = cheerio.load(rawDescription);
-        const descriptionText = desc$.text().replace(/\s+/g, " ").trim();
+        // Remove HTML tags from description
+        rawDescription = rawDescription.replace(/<[^>]+>/g, " ");
 
-        // Try to extract a ₹/Rs price from text
+        // Remove "The post ... appeared first on ..."
+        const descParts = rawDescription.split("The post");
+        let descriptionText = descParts[0].trim().replace(/\s+/g, " ");
+
+        if (!descriptionText) descriptionText = rawTitle;
+
+        // Filter: only keep items that look like deals
+        if (!isDealTitle(rawTitle) && !isDealTitle(descriptionText)) {
+          return; // skip blog-type posts
+        }
+
+        // Try to extract price from text (₹ or Rs)
         let price = 0;
         const priceMatch =
           descriptionText.match(/(?:₹|Rs\.?)\s*([\d,]+)/i) ||
-          title.match(/(?:₹|Rs\.?)\s*([\d,]+)/i);
+          rawTitle.match(/(?:₹|Rs\.?)\s*([\d,]+)/i);
         if (priceMatch) {
           price = Number(priceMatch[1].replace(/,/g, ""));
         }
 
-        // Store name (very rough – you can improve later)
-        // Example patterns like "on Amazon", "at Myntra" in text
-        let store = "couponzguru";
+        // Store name (rough heuristic)
+        let store = "CouponzGuru";
         const storeMatch = descriptionText.match(
           /\b(on|at)\s+([A-Z][A-Za-z0-9& ]{2,30})/
         );
@@ -83,11 +94,11 @@ export async function scrapePriceHistory() {
 
         deals.push({
           id: `cg_${deals.length + 1}`,
-          title: title || "Untitled Deal",
-          description: descriptionText || title,
+          title: rawTitle || "Untitled Deal",
+          description: descriptionText,
           link,
           store,
-          image: "", // RSS usually doesn't have direct product images
+          image: "",
           price,
           old_price: 0,
           discount_percent: 0,
@@ -105,7 +116,7 @@ export async function scrapePriceHistory() {
     }
   }
 
-  console.log("Total deals from RSS:", deals.length);
+  console.log("Total deals from RSS (after filter):", deals.length);
 
   if (!deals.length) {
     console.warn("No deals from RSS feeds, returning fallback deals");
