@@ -1,50 +1,103 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-const PRICE_HISTORY_URL = "https://pricehistoryapp.com/deals";
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
+const TARGET_URL = "https://pricehistoryapp.com/deals";
+
+// Fallback demo data (used if scraping fails)
+const FALLBACK_DEALS = [
+  {
+    id: "demo_1",
+    title: "Demo Amazon Deal",
+    description: "Demo deal while real scraping is unavailable",
+    link: "https://www.amazon.in/",
+    store: "amazon",
+    image: "",
+    price: 999,
+    old_price: 1999,
+    discount_percent: 50,
+    source: "fallback",
+    timestamp: Date.now(),
+  },
+  {
+    id: "demo_2",
+    title: "Demo Flipkart Deal",
+    description: "Demo deal while real scraping is unavailable",
+    link: "https://www.flipkart.com/",
+    store: "flipkart",
+    image: "",
+    price: 499,
+    old_price: 999,
+    discount_percent: 50,
+    source: "fallback",
+    timestamp: Date.now(),
+  },
+];
 
 export async function scrapePriceHistory() {
-  try {
-    console.log("Fetching:", PRICE_HISTORY_URL);
+  // If no API key, don't crash – just return fallback
+  if (!SCRAPER_API_KEY) {
+    console.warn("SCRAPER_API_KEY not set, using fallback deals");
+    return FALLBACK_DEALS;
+  }
 
-    const res = await axios.get(PRICE_HISTORY_URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Connection": "keep-alive",
-        "Referer": "https://pricehistoryapp.com/",
+  try {
+    console.log("Fetching via ScraperAPI:", TARGET_URL);
+
+    // Example for ScraperAPI-style service
+    const res = await axios.get("https://api.scraperapi.com", {
+      params: {
+        api_key: SCRAPER_API_KEY,
+        url: TARGET_URL,
+        render: "true", // ask the service to execute JS
       },
-      timeout: 15000, // 15s timeout
+      timeout: 30000,
       maxRedirects: 5,
     });
 
-    const $ = cheerio.load(res.data);
+    const html = res.data;
+    const $ = cheerio.load(html);
     const deals = [];
 
-    // NOTE: Page content is mostly loaded via JS, so this may not find items.
-    // We keep the loop so it doesn't crash your backend.
-    $(".product-item, .deal-card").each((i, el) => {
-      const title = $(el).find("a").first().text().trim();
-      let link = $(el).find("a").first().attr("href") || "";
+    // You may need to adjust these selectors based on actual HTML
+    $(".product-item, .deal-card, .card").each((i, el) => {
+      const $el = $(el);
+
+      const title =
+        $el.find(".product-title a").text().trim() ||
+        $el.find("a").first().text().trim();
+
+      if (!title) return; // skip empty cards
+
+      let link =
+        $el.find(".product-title a").attr("href") ||
+        $el.find("a").first().attr("href") ||
+        "";
 
       if (link.startsWith("/")) {
         link = "https://pricehistoryapp.com" + link;
       }
 
-      const image = $(el).find("img").first().attr("src") || "";
+      const image =
+        $el.find("img").attr("src") ||
+        $el.find("img").attr("data-src") ||
+        "";
 
-      const price =
-        Number(
-          $(el)
-            .text()
-            .match(/₹[\d,]+/g)?.[0]
-            ?.replace(/₹|,/g, "")
-        ) || 0;
+      // Try to grab a price pattern like ₹1,234
+      const priceMatch = $el
+        .text()
+        .match(/₹\s*[\d,]+/);
+      const price = priceMatch
+        ? Number(priceMatch[0].replace(/₹|\s|,/g, ""))
+        : 0;
 
-      const old_price = 0; // we don't have clear selector here
+      const oldPriceMatch = $el
+        .text()
+        .match(/₹\s*[\d,]+/g);
+      const old_price =
+        oldPriceMatch && oldPriceMatch.length > 1
+          ? Number(oldPriceMatch[1].replace(/₹|\s|,/g, ""))
+          : 0;
 
       const discount_percent =
         old_price > price && price > 0
@@ -72,14 +125,21 @@ export async function scrapePriceHistory() {
       });
     });
 
-    console.log("PriceHistory deals scraped:", deals.length);
+    console.log("Scraped deals via ScraperAPI:", deals.length);
+
+    // If website structure changed and we got nothing, still return fallback
+    if (deals.length === 0) {
+      console.warn("No deals parsed, returning fallback data");
+      return FALLBACK_DEALS;
+    }
+
     return deals;
   } catch (err) {
     console.error(
-      "Scraper error:",
+      "Scraper error via API:",
       err.response?.status || err.code || "NO_STATUS",
       err.message
     );
-    return [];
+    return FALLBACK_DEALS;
   }
 }
